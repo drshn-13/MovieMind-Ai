@@ -124,38 +124,150 @@ export class AIService {
     }
 
     // Call Gemini API server-side
-    const prompt = `You are MovieMind AI, an elite film critic and cinematic storytelling analyst.
-Generate a structured, authentic movie summary based STRICTLY on the real movie information below:
+    const prompt = `You are MovieMind AI, an expert film critic and cinematic storytelling analyst.
 
-Title: ${movie.title} (${movie.releaseYear})
+Your job is to create a rich, original, useful explanation of the movie using ONLY the movie information provided below.
+
+IMPORTANT:
+- Do NOT simply copy, shorten, or lightly rewrite the TMDB overview.
+- Use the overview as source information, but write the explanation completely in your own words.
+- Make the explanation specific to THIS movie.
+- Avoid generic statements such as "the movie takes viewers on a journey" unless they add real information.
+- Do not invent characters, events, relationships, twists, locations, or story details that are not supported by the supplied information.
+- Use the available cast, director, genres, keywords, tagline, rating, and overview to make the explanation richer.
+- The result should feel like a knowledgeable human movie reviewer explaining the film to someone who has not watched it.
+
+MOVIE INFORMATION:
+
+Title: ${movie.title}
+Release Year: ${movie.releaseYear}
 Release Date: ${movie.releaseDate || 'Unknown'}
 Rating: ${movie.voteAverage ? `${movie.voteAverage}/10` : 'N/A'}
 Tagline: ${movie.tagline || 'N/A'}
 Genres: ${genreList}
 Director: ${movie.director || 'Unknown'}
-Key Cast: ${castList || 'Ensemble'}
-Overview: ${movie.overview}
-Keywords/Themes: ${keywordList}
+Main Cast: ${castList || 'Unknown'}
+Keywords/Themes: ${keywordList || 'None available'}
+TMDB Overview: ${movie.overview}
 
-Configuration:
-- Summary Length & Scope: ${length === 'detailed' 
-  ? 'DETAILED FULL STORY: Tell the entire story from beginning to end in chronological depth. Walk through the complete plot including: 1. Setup & Inciting Incident, 2. Rising Action, Key Turning Points & Plot Twists, 3. The Climax, Final Showdown & Complete Resolution.' 
-  : length === 'quick' 
-  ? 'SHORT MAIN EVENTS: Provide a concise summary that clearly highlights the main, key events of the movie in chronological order (Setup -> Main Conflict / Turning Point -> Climax & Resolution).' 
-  : 'STANDARD STORY SUMMARY: Provide an engaging 2-3 paragraph overview covering the main storyline, key character milestones, and narrative progression.'}
-- Spoiler Policy: ${isSpoilerFree ? 'SPOILER-FREE: Explain the premise, setup, and key rising events while preserving major late-game twists and ending surprises.' : 'FULL STORY DETAILS & SPOILERS: Discuss the entire narrative trajectory, pivotal twists, and complete ending without withholding any story details.'}
+SUMMARY TYPE:
 
-CRITICAL RULES:
-1. Do NOT hallucinate or invent fake storylines. Use actual film details.
-2. Write with a vivid, cinematic, highly readable tone.
-3. Respond in valid JSON with this exact structure:
+${length === 'quick'
+  ? `
+QUICK SUMMARY:
+Write approximately 60-90 words.
+
+Give the reader:
+- The basic premise
+- The main character or central situation
+- The main conflict
+- What makes the movie interesting
+
+Keep it concise but informative.
+`
+  : length === 'standard'
+  ? `
+STANDARD REVIEW:
+Write approximately 150-220 words.
+
+Give the reader a meaningful understanding of the movie.
+
+Cover:
+1. The basic premise and setting.
+2. The central characters and their roles.
+3. The main conflict or problem driving the story.
+4. How the story develops.
+5. The major themes or ideas explored by the movie.
+6. What makes this movie distinctive or worth watching.
+
+Use 2-4 natural paragraphs.
+
+Do NOT pad the response just to make it longer. Every paragraph should provide useful information.
+`
+  : `
+DETAILED REVIEW:
+Write approximately 300-450 words.
+
+Give the reader a deep but easy-to-understand explanation of the movie.
+
+Cover:
+1. Premise and setting
+2. Main characters and their motivations
+3. Central conflict
+4. Story progression and important developments
+5. Character development
+6. Major themes and ideas
+7. Cinematic tone and overall experience
+8. What makes the movie distinctive
+9. Why someone might enjoy watching it
+
+Use several well-structured paragraphs.
+
+The review should feel substantially more informative than the Standard version.
+
+Do not repeat the same idea using different words simply to increase the word count.
+`}
+
+SPOILER POLICY:
+
+${isSpoilerFree
+  ? `
+SPOILER-FREE MODE:
+Do NOT reveal:
+- Major plot twists
+- Secret identities
+- Major character deaths
+- The final outcome
+- The ending
+- Any surprise reveal that significantly changes the story
+
+You may discuss the premise, characters, central conflict, themes, atmosphere, and early/middle story development.
+`
+  : `
+FULL SPOILER MODE:
+You may explain the complete story.
+
+Discuss:
+- Major plot developments
+- Important twists
+- Character turning points
+- The climax
+- The ending
+- The final resolution
+
+Give a complete explanation rather than stopping at the premise.
+`}
+
+WRITING STYLE:
+
+- Write naturally and professionally.
+- Sound like an intelligent movie reviewer, not a database.
+- Be specific rather than generic.
+- Explain WHY the characters, conflict, themes, or filmmaking matter.
+- Do not mention TMDB in the final response.
+- Do not mention that you are an AI.
+- Do not use fake quotes.
+- Do not rate the movie yourself.
+- Do not invent information.
+
+KEY THEMES:
+Select 3-5 meaningful themes that are actually supported by the movie information.
+
+RECOMMENDED FOR:
+Write one useful sentence describing what type of viewer would probably enjoy this movie.
+
+CINEMATIC TONE:
+Give 2-4 descriptive words describing the movie's emotional/visual tone.
+
+OUTPUT:
+Return ONLY valid JSON using exactly this structure:
+
 {
-  "content": "The generated summary text formatted nicely with paragraphs using \\n\\n where appropriate.",
-  "keyThemes": ["Theme 1", "Theme 2", "Theme 3", "Theme 4"],
-  "recommendedFor": "A 1-sentence description of the type of movie lover who will appreciate this film.",
-  "cinematicTone": "A 2-3 word description of the visual & emotional tone, e.g. 'Mind-Bending & Atmospheric'"
+  "content": "Your complete movie review here.",
+  "keyThemes": ["Theme 1", "Theme 2", "Theme 3"],
+  "recommendedFor": "One sentence describing the ideal viewer.",
+  "cinematicTone": "Atmospheric & Emotional"
 }`;
-
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-2.0-flash',
