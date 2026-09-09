@@ -1,0 +1,6 @@
+{
+  "name": "MovieMind AI",
+  "description": "AI-powered movie discovery platform with content-based recommendations, Gemini-powered spoiler-aware summaries, and natural text-to-speech audio player.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
