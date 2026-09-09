@@ -1,111 +1,72 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { db } from '../db/database.js';
+import { TMDBMovie } from './tmdb.js';
 
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+let geminiClient: GoogleGenAI | null = null;
 
-  if (
-    !apiKey ||
-    apiKey === 'MY_GEMINI_API_KEY' ||
-    apiKey.trim().length === 0
-  ) {
-    return null;
+function getGeminiClient(): GoogleGenAI {
+  if (!geminiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    geminiClient = new GoogleGenAI({
+      apiKey,
+    });
   }
 
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-}
-
-function pcmToWavDataUri(
-  pcmBase64: string,
-  sampleRate = 24000,
-  numChannels = 1,
-  bitsPerSample = 16
-): string {
-  const pcmBuffer = Buffer.from(pcmBase64, 'base64');
-
-  const byteRate =
-    (sampleRate * numChannels * bitsPerSample) / 8;
-
-  const blockAlign =
-    (numChannels * bitsPerSample) / 8;
-
-  const dataSize = pcmBuffer.length;
-  const chunkSize = 36 + dataSize;
-
-  const header = Buffer.alloc(44);
-
-  header.write('RIFF', 0);
-  header.writeUInt32LE(chunkSize, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(numChannels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(dataSize, 40);
-
-  const wavBuffer = Buffer.concat([header, pcmBuffer]);
-
-  return `data:audio/wav;base64,${wavBuffer.toString('base64')}`;
+  return geminiClient;
 }
 
 export interface GenerateSummaryOptions {
-  movie: {
-    id: number;
-    title: string;
-    overview: string;
-    releaseYear: number;
-    releaseDate?: string;
-    voteAverage?: number;
-    genres: { name: string }[];
-    director?: string;
-    cast?: { name: string; character: string }[];
-    keywords?: string[];
-    tagline?: string;
-  };
-
+  movie: TMDBMovie;
   length: 'quick' | 'standard' | 'detailed';
-
   isSpoilerFree: boolean;
-
   forceRegenerate?: boolean;
 }
 
 export interface SummaryOutput {
   id: string;
   movieId: number;
-  movieTitle: string;
   length: 'quick' | 'standard' | 'detailed';
   isSpoilerFree: boolean;
-  content: string;
-  keyThemes: string[];
-  recommendedFor: string;
-  cinematicTone: string;
+  summary: string;
+  keyPoints: string[];
   createdAt: string;
 }
 
-export class AIService {
-  hasApiKey(): boolean {
-    return Boolean(
-      process.env.GEMINI_API_KEY &&
-      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'
-    );
-  }
+export interface GenerateAudioOptions {
+  summaryId: string;
+  movieId: number;
+  movieTitle: string;
+  summaryText: string;
+  voiceName?: string;
+  forceRegenerate?: boolean;
+}
+
+export interface AudioOutput {
+  id: string;
+  summaryId: string;
+  movieId: number;
+  movieTitle: string;
+  audioBase64: string;
+  mimeType: string;
+  voiceName: string;
+  createdAt: string;
+}
+
+export const aiService = {
+
+  // ============================================================
+  // MOVIE SUMMARY
+  // ============================================================
 
   async generateMovieSummary(
     options: GenerateSummaryOptions
   ): Promise<SummaryOutput> {
+
     const {
       movie,
       length,
@@ -114,373 +75,286 @@ export class AIService {
 
     /*
      * IMPORTANT:
-     * AI summary caching has intentionally been disabled.
+     * We intentionally DO NOT check the database cache here.
      *
-     * Every request generates a completely new summary from Gemini.
-     *
-     * This means:
-     * Quick      -> new Gemini generation
-     * Standard   -> new Gemini generation
-     * Detailed   -> new Gemini generation
-     *
-     * We no longer read an existing summary from the database.
+     * Every request creates a completely new Gemini generation.
      */
 
     const ai = getGeminiClient();
 
-    const genreList = movie.genres
-      .map((g) => g.name)
-      .join(', ');
+    // Unique value for EVERY generation.
+    const generationId =
+      `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
 
-    const castList = (movie.cast || [])
-      .slice(0, 6)
-      .map((c) => `${c.name} as ${c.character}`)
-      .join(', ');
-
-    const keywordList = (movie.keywords || [])
-      .slice(0, 10)
-      .join(', ');
-
-    /*
-     * Gemini unavailable fallback.
-     *
-     * We intentionally DO NOT save this fallback into the
-     * summaries table because summaries are not cached anymore.
-     */
-
-    if (!ai) {
-      const fallbackThemes =
-        movie.keywords && movie.keywords.length > 0
-          ? movie.keywords.slice(0, 4)
-          : [
-              'Identity',
-              'Courage',
-              'Moral Conflict',
-              'Discovery',
-            ];
-
-      let fallbackText = '';
-
-      if (length === 'quick') {
-        fallbackText = `
-MAIN EVENTS SUMMARY
-
-${movie.title} (${movie.releaseYear}) is a ${genreList} film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-The story begins with ${movie.overview}
-
-The central conflict develops around the characters ${
-          castList || 'at the heart of the story'
-        }, creating the main dramatic tension that drives the movie forward.
-
-The film explores themes such as ${fallbackThemes.join(
-          ', '
-        )}.
-        `.trim();
-      } else if (length === 'detailed') {
-        fallbackText = `
-DETAILED MOVIE EXPLANATION
-
-1. SETUP & PREMISE
-
-${movie.title} (${movie.releaseYear}) is a ${genreList} film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-The story begins with:
-
-${movie.overview}
-
-
-2. CHARACTERS & CONFLICT
-
-The main cast includes ${
-          castList || 'the principal characters'
-        }.
-
-Their circumstances establish the central conflict of the story and create the emotional foundation for the events that follow.
-
-
-3. THEMES & STORY
-
-The movie explores ideas connected to ${fallbackThemes.join(
-          ', '
-        )}.
-
-As the story develops, these themes become increasingly important to the characters and their decisions.
-
-
-4. OVERALL EXPERIENCE
-
-The film combines its ${genreList} elements with its character-driven story to create an experience intended for viewers interested in ${
-          genreList || 'cinematic storytelling'
-        }.
-
-${isSpoilerFree
-  ? 'This explanation intentionally avoids revealing major twists and the final outcome.'
-  : 'For a full spoiler explanation, the complete plot and ending should be discussed using detailed movie information.'}
-        `.trim();
-      } else {
-        fallbackText = `
-${movie.title} (${movie.releaseYear}) is a ${genreList} film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-${movie.overview}
-
-The main cast includes ${
-          castList || 'the principal characters'
-        }, whose roles help establish the film's central conflict and emotional direction.
-
-The movie explores themes of ${fallbackThemes.join(
-          ', '
-        )} while combining its story, characters and cinematic tone into its overall experience.
-
-${
-  isSpoilerFree
-    ? 'This explanation keeps the major ending and late-story twists hidden.'
-    : 'This version is intended to discuss the complete narrative, including major developments and the ending.'
-}
-        `.trim();
-      }
-
-      return {
-        id: `sum_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(2, 7)}`,
-
-        movieId: movie.id,
-
-        movieTitle: movie.title,
-
-        length,
-
-        isSpoilerFree,
-
-        content: fallbackText,
-
-        keyThemes: fallbackThemes,
-
-        recommendedFor: `Fans of thoughtful ${genreList} films seeking detailed cinematic storytelling.`,
-
-        cinematicTone:
-          'Immersive & Thought-Provoking',
-
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    /*
-     * Gemini prompt
-     */
-
-   const prompt = `
+    const prompt = `
 You are an expert movie critic, film analyst, and storyteller.
 
-Your job is to create a useful, movie-specific analysis of the following film.
+Generate a completely NEW movie summary for this request.
 
-MOVIE INFORMATION:
+==================================================
+NEW GENERATION
+==================================================
+
+Generation ID: ${generationId}
+
+This is a fresh generation.
+
+Do NOT reproduce, copy, or closely imitate a previous response.
+
+Even if the same movie and same options are requested again,
+create a fresh response with different wording, observations,
+sentence structure, and emphasis.
+
+Do not intentionally repeat a previous summary.
+
+==================================================
+MOVIE
+==================================================
+
 Title: ${movie.title}
-Overview: ${movie.overview}
-Release Date: ${movie.releaseDate || 'Unknown'}
-Genres: ${movie.genres?.join(', ') || 'Unknown'}
-Rating: ${movie.voteAverage ?? 'Unknown'}
 
-REQUESTED LEVEL: ${length}
-SPOILER-FREE: ${isSpoilerFree}
+Overview:
+${movie.overview}
 
-IMPORTANT KNOWLEDGE RULE:
-Use the movie information provided above, but ALSO use your own existing knowledge
-about this movie when you are confident about it.
+Release Date:
+${movie.releaseDate || 'Unknown'}
 
-Do NOT restrict yourself to simply rewriting the TMDB overview.
+Genres:
+${movie.genres?.join(', ') || 'Unknown'}
 
-However, NEVER invent characters, events, scenes, quotes, actors, relationships,
-or other movie facts. If you are uncertain about a specific detail, leave it out.
+Rating:
+${movie.voteAverage ?? 'Unknown'}
 
 ==================================================
-QUICK SUMMARY
+REQUEST
 ==================================================
 
-If the requested level is "quick":
+Summary Length:
+${length}
 
-Give a short but useful introduction to the movie.
+Spoiler-Free:
+${isSpoilerFree}
 
-Focus on:
+==================================================
+USE YOUR OWN KNOWLEDGE
+==================================================
+
+Use the information provided above as a starting point.
+
+You may ALSO use your own existing knowledge about this movie
+when you are confident that the information is correct.
+
+Do not limit the answer to simply rewriting the supplied overview.
+
+However, NEVER invent movie facts.
+
+Do not fabricate:
+- Characters
+- Plot events
+- Actors
+- Relationships
+- Quotes
+- Scenes
+- Twists
+- Locations
+- Production facts
+
+If you are uncertain about a specific fact, do not include it.
+
+==================================================
+QUICK
+==================================================
+
+If the requested length is "quick":
+
+Give a concise and useful explanation of the movie.
+
+Focus mainly on:
+
 - What the movie is about
-- The central premise or conflict
-- The main character or characters
+- The central premise
+- The main conflict
+- The important character or characters
 - What makes the movie interesting
-- The overall type of experience the viewer can expect
+- The overall viewing experience
 
-Do NOT try to perform a deep film analysis.
+Keep it short and easy to understand.
 
-The purpose is:
-"Give me a quick understanding of this movie."
+Do not turn this into a deep film analysis.
 
 ==================================================
-STANDARD SUMMARY
+STANDARD
 ==================================================
 
-If the requested level is "standard":
+If the requested length is "standard":
 
-Give a proper movie review and analysis.
+Give a proper movie review.
 
-Cover:
-- The story and central conflict
-- Important characters and their motivations
+Discuss:
+
+- Story and central conflict
+- Main characters
+- Character motivations
 - Character development
-- Major themes and ideas
-- What the movie does particularly well
-- Weaknesses or limitations, if relevant
+- Important themes
 - Emotional impact
-- Overall viewing experience
-- What makes the movie stand out
+- Strengths
+- Weaknesses when appropriate
+- Overall experience
+- What makes the movie worth watching
 
-Do not simply repeat the Quick summary with more words.
-
-The purpose is:
-"Help me understand the movie and decide whether it is worth watching."
+Give useful analysis rather than simply retelling the plot.
 
 ==================================================
-DETAILED SUMMARY
+DETAILED
 ==================================================
 
-If the requested level is "detailed":
+If the requested length is "detailed":
 
-Perform a deep film analysis.
+Give a deep film analysis.
 
-Go beyond explaining what happens.
+Go beyond simply explaining the story.
 
-Analyze:
-- Story structure and progression
-- Character development and motivations
-- Relationships between important characters
-- Central conflicts
-- Major themes
-- Deeper ideas and messages
-- Symbolism and recurring concepts when applicable
-- Emotional and psychological aspects
-- Direction and filmmaking choices
-- Cinematography and visual style when relevant
-- Music and sound when relevant
-- Pacing and atmosphere
-- Strengths of the screenplay
-- Weaknesses or limitations
-- Why certain scenes or moments are effective
-- What makes this movie unique
-- The deeper meaning or interpretation of the movie
-- Why the movie has an emotional, cultural, or lasting impact when applicable
+Analyze when relevant:
 
-The Detailed version MUST contain insights that would not normally appear
-in the Quick or Standard version.
+- Story structure
+- Character development
+- Character motivations
+- Relationships
+- Themes
+- Symbolism
+- Deeper meanings
+- Psychological aspects
+- Emotional impact
+- Direction
+- Cinematography
+- Visual style
+- Music and sound
+- Atmosphere
+- Pacing
+- Screenplay
+- Strengths
+- Weaknesses
+- Memorable aspects
+- What makes the movie unique
+- Why the movie works or does not work
+- Deeper interpretation
 
-Do NOT simply take the Standard summary and make it longer.
+The detailed version should feel like an analysis
+from a knowledgeable film critic.
 
-The purpose is:
-"Give me the kind of analysis I would get from a knowledgeable film critic."
+Do not simply make the Standard version longer.
+
+==================================================
+FRESHNESS REQUIREMENT
+==================================================
+
+Every generation must be independently written.
+
+If this movie has already been summarized before:
+
+DO NOT:
+- Copy the previous explanation
+- Reuse the same opening
+- Reuse the same paragraph structure
+- Repeat the same observations unnecessarily
+- Simply change a few words
+
+DO:
+- Start from a fresh perspective
+- Use different wording
+- Highlight different aspects of the movie
+- Choose different supporting observations
+- Explain ideas in a new way
+- Produce a genuinely new response
+
+The response should feel like a new critic watching
+and discussing the same movie from a slightly different perspective.
 
 ==================================================
 SPOILER RULE
 ==================================================
 
-${isSpoilerFree
-  ? `
-This is a SPOILER-FREE analysis.
+${
+  isSpoilerFree
+    ? `
+This is a SPOILER-FREE summary.
 
 Do NOT reveal:
+
 - Major plot twists
 - The ending
 - Major deaths
 - Hidden identities
-- Important reveals
-- Major surprises
-- Any other information that would significantly reduce the viewing experience
+- Major reveals
+- Important surprises
+- Any information that would significantly damage
+  the first-time viewing experience.
 
-You may discuss themes, characters, filmmaking, and the general premise
-without revealing important story developments.
+You can discuss the premise, characters, themes,
+filmmaking, and general emotional impact without
+revealing important plot developments.
 `
-  : `
+    : `
 Spoilers are allowed.
 
 You may discuss:
+
 - Major plot developments
 - Important twists
 - Character outcomes
 - The ending
 - Important reveals
 
-Use spoilers when they help explain the movie's meaning or quality.
+Use spoilers when they help explain the movie.
 `
 }
 
 ==================================================
-QUALITY REQUIREMENTS
+WRITING RULES
 ==================================================
 
-1. Make the analysis SPECIFIC to this movie.
-
-2. Do not write generic statements such as:
-   "This movie has great acting and an interesting story"
-   unless you explain specifically WHY.
-
-3. Do not repeat the same ideas unnecessarily.
-
-4. Do not use filler just to increase the word count.
-
-5. Each requested level must provide DIFFERENT INFORMATION and DEPTH.
-
-6. The Detailed version should introduce deeper observations,
-   not merely additional sentences.
-
-7. Write naturally, like an intelligent human film critic.
-
-8. Use your own movie knowledge when reliable.
-
-9. Never fabricate movie facts.
-
-10. If the supplied information and your knowledge do not provide
-    enough confidence for a specific claim, do not make that claim.
-
-11. Make the result enjoyable and easy to read.
-
-12. Do not mention that you are an AI.
-
-13. Do not mention TMDB or this prompt.
-
-14. Do not say things like "based on the information provided."
+- Write naturally.
+- Be specific to this movie.
+- Avoid generic filler.
+- Do not repeatedly say the movie is "interesting",
+  "captivating", or "a masterpiece" without explaining why.
+- Do not repeat the same idea multiple times.
+- Do not invent facts.
+- Do not mention that you are an AI.
+- Do not mention this prompt.
+- Do not mention TMDB.
+- Do not say "based on the information provided".
+- Make the summary useful to someone deciding whether to watch the movie.
 
 ==================================================
-LENGTH GUIDELINE
+APPROXIMATE LENGTH
 ==================================================
 
 Quick:
-Approximately 100-150 words.
+100-150 words
 
 Standard:
-Approximately 250-350 words.
+250-350 words
 
 Detailed:
-Approximately 500-700 words.
+500-700 words
 
-These are guidelines, NOT strict limits.
+These are approximate guidelines.
 
-Quality and useful information are more important than hitting an exact
-word count.
+Quality is more important than exact word count.
 
 ==================================================
-OUTPUT FORMAT
+OUTPUT
 ==================================================
 
 Return ONLY valid JSON.
 
-Use exactly this structure:
+Use exactly this format:
 
 {
   "title": "Movie title",
-  "summary": "The complete analysis",
+  "summary": "Complete movie analysis",
   "keyPoints": [
     "Important insight 1",
     "Important insight 2",
@@ -492,6 +366,7 @@ Use exactly this structure:
 `;
 
     try {
+
       const response = await ai.models.generateContent({
         model: 'gemini-2.0-flash',
 
@@ -500,158 +375,88 @@ Use exactly this structure:
         config: {
           responseMimeType: 'application/json',
 
-          temperature: 0.9,
+          // Higher temperature = more variation between generations.
+          temperature: 1.0,
         },
       });
 
-      const responseText = response.text || '';
+      const text = response.text || '';
 
-      let parsed: any;
-
-      try {
-        parsed = JSON.parse(responseText.trim());
-      } catch {
-        parsed = {
-          content: responseText,
-
-          keyThemes: [
-            'Cinematic Storytelling',
-            'Character Development',
-            'Human Conflict',
-          ],
-
-          recommendedFor: `Fans of ${genreList || 'cinematic'} storytelling.`,
-
-          cinematicTone:
-            'Compelling & Atmospheric',
-        };
+      if (!text) {
+        throw new Error('Gemini returned an empty response');
       }
 
-      /*
-       * IMPORTANT:
-       *
-       * We DO NOT call db.saveSummary().
-       *
-       * This prevents the newly generated summary from becoming
-       * a cached summary.
-       */
+      const parsed = JSON.parse(text);
 
-      return {
-        id: `sum_${Date.now()}_${Math.random()
+      const summary: SummaryOutput = {
+        id: `sum_${movie.id}_${Date.now()}_${Math.random()
           .toString(36)
-          .substring(2, 7)}`,
+          .substring(2, 8)}`,
 
         movieId: movie.id,
-
-        movieTitle: movie.title,
 
         length,
 
         isSpoilerFree,
 
-        content:
-          parsed.content ||
-          responseText ||
-          'Unable to generate movie summary.',
+        summary: parsed.summary || '',
 
-        keyThemes:
-          Array.isArray(parsed.keyThemes)
-            ? parsed.keyThemes
-            : [
-                'Cinematic Storytelling',
-                'Character Development',
-                'Human Conflict',
-              ],
-
-        recommendedFor:
-          parsed.recommendedFor ||
-          `Fans of ${genreList || 'cinematic'} stories.`,
-
-        cinematicTone:
-          parsed.cinematicTone ||
-          'Cinematic & Immersive',
+        keyPoints: Array.isArray(parsed.keyPoints)
+          ? parsed.keyPoints
+          : [],
 
         createdAt: new Date().toISOString(),
       };
-    } catch (err: any) {
-      console.error(
-        'Gemini generateMovieSummary error:',
-        err
-      );
 
       /*
-       * If Gemini fails, return a fallback result.
-       * DO NOT save it to the database.
+       * IMPORTANT:
+       * We intentionally DO NOT save the generated summary
+       * into the database.
+       *
+       * This prevents old summaries from being reused.
        */
 
+      return summary;
+
+    } catch (error) {
+
+      console.error('Gemini summary generation failed:', error);
+
+      // Fallback summary
       return {
-        id: `sum_${Date.now()}_${Math.random()
+        id: `sum_${movie.id}_${Date.now()}_${Math.random()
           .toString(36)
-          .substring(2, 7)}`,
+          .substring(2, 8)}`,
 
         movieId: movie.id,
-
-        movieTitle: movie.title,
 
         length,
 
         isSpoilerFree,
 
-        content: `
-${movie.title} (${movie.releaseYear}) is a ${genreList || 'cinematic'} film directed by ${
-          movie.director || 'its filmmakers'
-        }.
+        summary: movie.overview ||
+          'No summary is available for this movie.',
 
-${movie.overview}
-
-The movie's story is centered around ${
-          castList || 'its main characters'
-        } and explores themes connected to ${
-          keywordList || 'its central conflict and characters'
-        }.
-
-${
-  isSpoilerFree
-    ? 'This explanation avoids major twists and the final outcome.'
-    : 'This version is intended to provide a complete explanation of the story.'
-}
-        `.trim(),
-
-        keyThemes: [
-          'Storytelling',
-          'Character Development',
-          'Cinema',
+        keyPoints: [
+          `Genre: ${movie.genres?.join(', ') || 'Unknown'}`,
+          `Release date: ${movie.releaseDate || 'Unknown'}`,
+          `Rating: ${movie.voteAverage ?? 'Unknown'}`,
         ],
-
-        recommendedFor:
-          `Viewers interested in ${genreList || 'cinematic'} storytelling.`,
-
-        cinematicTone:
-          'Engaging & Dramatic',
 
         createdAt: new Date().toISOString(),
       };
     }
-  }
+  },
 
-  async generateAudioSummary(options: {
-    summaryId: string;
-    movieId: number;
-    movieTitle: string;
-    summaryText: string;
-    voiceName?: string;
-    forceRegenerate?: boolean;
-  }): Promise<{
-    id: string;
-    summaryId: string;
-    movieId: number;
-    movieTitle: string;
-    voiceName: string;
-    audioUrl: string;
-    durationSeconds: number;
-    summaryText: string;
-    createdAt: string;
-  }> {
+
+  // ============================================================
+  // AUDIO SUMMARY
+  // ============================================================
+
+  async generateAudioSummary(
+    options: GenerateAudioOptions
+  ): Promise<AudioOutput> {
+
     const {
       summaryId,
       movieId,
@@ -662,133 +467,103 @@ ${
     } = options;
 
     /*
-     * Audio caching remains enabled.
-     *
-     * Only movie AI summaries are generated every time.
+     * Audio caching is kept as it was.
+     * Only movie-summary generation is always fresh.
      */
 
     if (!forceRegenerate) {
+
       const cached = await db.getAudioSummary(
         summaryId,
         voiceName
       );
 
       if (cached) {
-        return {
-          ...cached,
-          audioUrl: cached.audioBase64,
-        };
+        return cached;
       }
     }
 
     const ai = getGeminiClient();
 
-    const wordCount =
-      summaryText.split(/\s+/).length;
+    try {
 
-    const estimatedDuration = Math.max(
-      10,
-      Math.round(wordCount / 2.3)
-    );
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-preview-tts',
 
-    if (ai) {
-      try {
-        const cleanScript = summaryText
-          .replace(/[\n\r]+/g, ' ')
-          .replace(/[#*_-]/g, '')
-          .slice(0, 1200);
-
-        const ttsPrompt = `Speak in a warm, cinematic, engaging documentary narrator tone: ${cleanScript}`;
-
-        const response =
-          await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-
-            contents: [
+        contents: [
+          {
+            role: 'user',
+            parts: [
               {
-                parts: [
-                  {
-                    text: ttsPrompt,
-                  },
-                ],
+                text: `
+Read the following movie summary naturally,
+like a professional narrator.
+
+Movie:
+${movieTitle}
+
+Summary:
+${summaryText}
+`,
               },
             ],
+          },
+        ],
 
-            config: {
-              responseModalities: [Modality.AUDIO],
+        config: {
+          responseModalities: ['AUDIO'],
 
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName: (
-                      [
-                        'Puck',
-                        'Charon',
-                        'Kore',
-                        'Fenrir',
-                        'Zephyr',
-                      ].includes(voiceName)
-                        ? voiceName
-                        : 'Kore'
-                    ) as any,
-                  },
-                },
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName,
               },
             },
-          });
-
-        const pcmBase64 =
-          response.candidates?.[0]?.content?.parts?.[0]
-            ?.inlineData?.data;
-
-        if (pcmBase64) {
-          const wavDataUri = pcmToWavDataUri(
-            pcmBase64,
-            24000,
-            1,
-            16
-          );
-
-          const saved =
-            await db.saveAudioSummary({
-              summaryId,
-              movieId,
-              movieTitle,
-              voiceName,
-              audioBase64: wavDataUri,
-              durationSeconds: estimatedDuration,
-              summaryText,
-            });
-
-          return {
-            ...saved,
-            audioUrl: saved.audioBase64,
-          };
-        }
-      } catch (err) {
-        console.warn(
-          'Gemini TTS model call error, falling back to browser synthesis:',
-          err
-        );
-      }
-    }
-
-    const saved =
-      await db.saveAudioSummary({
-        summaryId,
-        movieId,
-        movieTitle,
-        voiceName,
-        audioBase64: 'tts_browser_synth',
-        durationSeconds: estimatedDuration,
-        summaryText,
+          },
+        },
       });
 
-    return {
-      ...saved,
-      audioUrl: 'tts_browser_synth',
-    };
-  }
-}
+      const audioPart =
+        response.candidates?.[0]?.content?.parts?.find(
+          (part: any) => part.inlineData
+        );
 
-export const aiService = new AIService();
+      if (!audioPart?.inlineData?.data) {
+        throw new Error('Gemini did not return audio data');
+      }
+
+      const audio: AudioOutput = {
+        id: `audio_${movieId}_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(2, 8)}`,
+
+        summaryId,
+
+        movieId,
+
+        movieTitle,
+
+        audioBase64: audioPart.inlineData.data,
+
+        mimeType:
+          audioPart.inlineData.mimeType || 'audio/wav',
+
+        voiceName,
+
+        createdAt: new Date().toISOString(),
+      };
+
+      await db.saveAudioSummary(audio);
+
+      return audio;
+
+    } catch (error) {
+
+      console.error('Gemini audio generation failed:', error);
+
+      throw new Error(
+        'Failed to generate audio summary. Please try again.'
+      );
+    }
+  },
+};
