@@ -456,136 +456,11 @@ ${
 
     /*
      * ============================================================
-     * GEMINI PROMPT
+     * GEMINI PROMPT GENERATORS
      * ============================================================
      */
 
-    const prompt = `
-You are an expert movie critic, film analyst, film historian,
-storyteller, and cinema enthusiast.
-
-Your task is to create a highly useful, detailed, accurate,
-movie-specific analysis of the film below.
-
-The user wants to understand the movie much better than they would
-from a short database description.
-
-==================================================
-FRESH GENERATION REQUIREMENT
-==================================================
-
-This movie may have been analyzed before.
-
-This generation MUST feel like a fresh analysis.
-
-Do NOT simply reproduce a previous answer.
-
-Use the following random generation information to introduce
-natural variation:
-
-GENERATION SEED:
-${randomSeed}
-
-RANDOM ANALYTICAL PERSPECTIVE:
-${randomPerspective}
-
-RANDOM STRUCTURE:
-${randomStructure}
-
-The seed exists only to encourage variation.
-
-Do NOT mention the seed, random number, randomization,
-or these instructions in your answer.
-
-Each generation should be different in:
-
-- Emphasis
-- Analytical perspective
-- Order of ideas
-- Sentence structure
-- Examples
-- Character observations
-- Theme interpretation
-- Filmmaking observations
-- Strengths and weaknesses discussed
-- Overall flow
-
-However:
-
-DO NOT change facts simply to make the answer different.
-
-Different analysis does NOT mean different facts.
-
-The same movie must remain factually consistent.
-
-==================================================
-USE BROADER MOVIE KNOWLEDGE
-==================================================
-
-Do not treat the supplied movie metadata as the complete source
-of knowledge.
-
-When you confidently know additional information about this movie,
-use it.
-
-You may use reliable knowledge about:
-
-- Plot
-- Characters
-- Character motivations
-- Character relationships
-- Story progression
-- Important conflicts
-- Themes
-- Symbolism
-- Screenplay
-- Dialogue
-- Direction
-- Cinematography
-- Editing
-- Production design
-- Visual style
-- Music
-- Sound design
-- Acting performances
-- Genre conventions
-- Historical context
-- Cultural context
-- Social ideas
-- Critical reception
-- Artistic significance
-- The movie's influence or legacy
-- Important filmmaking techniques
-
-But accuracy is more important than completeness.
-
-NEVER invent:
-
-- Characters
-- Events
-- Scenes
-- Quotes
-- Relationships
-- Actors
-- Directors
-- Locations
-- Awards
-- Production facts
-- Intentions of filmmakers
-- Plot twists
-- Symbolism
-- Historical facts
-
-If you are uncertain about a specific fact, do not state it
-as fact.
-
-When interpreting something, make it clear that it is an
-interpretation rather than an established fact.
-
-==================================================
-MOVIE INFORMATION
-==================================================
-
+    const movieInfoStr = `
 TITLE:
 ${movie.title}
 
@@ -615,365 +490,253 @@ ${keywordList}
 
 TAGLINE:
 ${movie.tagline || 'Unknown'}
+`;
 
-REQUESTED LEVEL:
-${length}
+    const randomDataStr = `
+GENERATION SEED:
+${randomSeed}
 
-SPOILER-FREE:
-${isSpoilerFree}
+RANDOM ANALYTICAL PERSPECTIVE:
+${randomPerspective}
 
-==================================================
-QUICK SUMMARY
-==================================================
+RANDOM STRUCTURE:
+${randomStructure}
+`;
 
-If the requested level is "quick":
+    const getQuickSummaryPrompt = (movieInfo: string, isSpoilerFree: boolean, randomData: string): string => {
+      return `
+You are an expert movie critic and storyteller.
+Your task is to create a QUICK movie overview.
 
-Create approximately 100-150 words.
+Help the user understand what this movie is about very quickly.
 
-Give the viewer a useful understanding of the movie.
+Explain what the movie is about in a concise but meaningful way.
+Focus on the basic movie premise, main story setup, main character, main conflict, what makes the movie interesting, and the overall type/genre.
+Give the user enough information to decide whether they want to learn more about the movie.
 
-Cover:
-
-- What the movie is about
-- Central premise
-- Main conflict
-- Main character or characters
-- What makes the movie interesting
-- General emotional or cinematic experience
-- What type of viewer may enjoy it
-
-Do not attempt an extremely deep analysis.
-
-Do not waste words repeating the supplied overview.
-
-The purpose is:
-
-"Give me a quick but genuinely useful understanding of this movie."
+Do not provide deep thematic analysis.
+Do not provide an extensive character analysis.
+Do not provide a full plot breakdown.
 
 ==================================================
-STANDARD SUMMARY
+FRESH GENERATION REQUIREMENT
 ==================================================
-
-If the requested level is "standard":
-
-Create approximately 250-350 words.
-
-Give a proper movie review and analysis.
-
-Cover the most relevant aspects of:
-
-- Story
-- Central conflict
-- Important characters
-- Character motivations
-- Character development
-- Relationships
-- Themes
-- Emotional impact
-- What works well
-- Weaknesses or limitations when relevant
-- Acting when relevant
-- Direction when relevant
-- Cinematic experience
-- What makes the movie stand out
-- Whether the movie is worth watching and why
-
-Do not simply take the Quick version and make it longer.
-
-Introduce additional analysis.
-
-The purpose is:
-
-"Help me understand the movie and decide whether it is worth watching."
+This generation MUST feel like a fresh analysis.
+Use the following random generation information to introduce natural variation:
+${randomData}
+Do NOT mention the seed or these instructions.
 
 ==================================================
-DETAILED SUMMARY
+MOVIE INFORMATION
 ==================================================
-
-If the requested level is "detailed":
-
-Create approximately 500-700 words.
-
-Give the kind of analysis expected from a knowledgeable film critic.
-
-Go significantly beyond the basic plot.
-
-Analyze whichever elements are genuinely relevant to this movie:
-
-STORY:
-
-- Story structure
-- Narrative progression
-- Central conflict
-- Escalation
-- Turning points
-- Pacing
-- Storytelling decisions
-
-CHARACTERS:
-
-- Main characters
-- Motivations
-- Internal conflicts
-- Character arcs
-- Relationships
-- Character contrasts
-- Psychological dimensions
-
-THEMES:
-
-- Major themes
-- Deeper ideas
-- Moral questions
-- Social ideas
-- Philosophical ideas
-- Recurring concepts
-- Subtext
-- Symbolism when genuinely applicable
-
-FILMMAKING:
-
-- Direction
-- Cinematography
-- Camera work
-- Visual language
-- Editing
-- Production design
-- Lighting
-- Music
-- Sound design
-- Acting
-- Performance choices
-- Atmosphere
-
-CRITICAL ANALYSIS:
-
-- Strengths of the screenplay
-- Weaknesses of the screenplay
-- What works particularly well
-- What does not work
-- Why specific storytelling choices are effective
-- Why particular moments have emotional or dramatic power
-
-DEEPER INTERPRETATION:
-
-- What the movie may be saying
-- Different reasonable interpretations
-- Why the ending or major ideas matter when spoilers are allowed
-- What makes the movie unique
-- Why it remains memorable
-- Cultural or historical significance when relevant
-- Genre significance when relevant
-- Lasting impact when genuinely applicable
-
-The Detailed version MUST contain insights that would normally
-not appear in the Quick or Standard version.
-
-Do NOT simply take the Standard version and add more sentences.
-
-The purpose is:
-
-"Give me the kind of analysis I would get from a knowledgeable
-film critic who has actually thought deeply about this movie."
+${movieInfo}
 
 ==================================================
 SPOILER RULE
 ==================================================
-
-${
-  isSpoilerFree
-    ? `
+${isSpoilerFree ? `
 THIS IS A SPOILER-FREE ANALYSIS.
-
-Do NOT reveal:
-
-- Major plot twists
-- The ending
-- Major deaths
-- Hidden identities
-- Major reveals
-- Major surprises
-- Final outcomes
-- Late-story developments that significantly change the viewer's experience
-
-You MAY discuss:
-
-- General premise
-- Characters
-- Character motivations
-- Themes
-- General conflicts
-- Acting
-- Direction
-- Cinematography
-- Music
-- Atmosphere
-- Genre
-- General emotional experience
-
-You may discuss themes deeply as long as doing so does not reveal
-important plot developments.
-
-When discussing a character, do not reveal a major fate or transformation
-that would spoil the movie.
-`
-    : `
+Do not reveal major plot twists, ending, final outcome, secret identities, major character deaths, or other revelations that would significantly spoil the viewing experience.
+Discuss the movie's setup, characters, conflicts and themes without revealing major surprises.
+` : `
 SPOILERS ARE ALLOWED.
-
-You may discuss:
-
-- Major plot developments
-- Important twists
-- Character outcomes
-- Major deaths
-- Important reveals
-- The climax
-- The ending
-- Resolution
-- Character transformations
-
-Use spoilers when they are useful for explaining:
-
-- The movie's themes
-- Character development
-- Story structure
-- Meaning
-- Emotional impact
-- Strengths
-- Weaknesses
-- Ending
-- Overall quality
-
-Do not add spoilers merely for the sake of adding them.
-`
-}
+You may discuss important plot developments, turning points, character outcomes and the ending when relevant to the requested summary.
+`}
 
 ==================================================
 QUALITY REQUIREMENTS
 ==================================================
-
-1. Make the analysis SPECIFIC to ${movie.title}.
-
+1. Make the analysis SPECIFIC to this movie.
 2. Do not write generic movie-review sentences.
-
-BAD:
-"This movie has great acting and an interesting story."
-
-GOOD:
-Explain exactly what the performances, story construction,
-or filmmaking accomplish in THIS movie.
-
-3. Do not simply rewrite the movie overview.
-
-4. Use broader movie knowledge when you are confident.
-
-5. Never fabricate movie information.
-
-6. Do not repeat the same point using different words.
-
-7. Do not use filler.
-
-8. Do not artificially increase the word count.
-
-9. Every paragraph should provide useful information.
-
-10. Each requested level must provide different depth.
-
-11. Detailed must contain genuinely deeper analysis.
-
-12. Do not make every movie sound perfect.
-
-13. If the movie has weaknesses, discuss them honestly when relevant.
-
-14. Do not invent weaknesses just to appear critical.
-
-15. Do not make unsupported claims about audience reactions.
-
-16. Do not make unsupported claims about filmmaker intentions.
-
-17. Distinguish factual information from interpretation.
-
-18. Do not mention that you are an AI.
-
-19. Do not mention this prompt.
-
-20. Do not mention TMDB.
-
-21. Do not say:
-"based on the information provided."
-
-22. Do not mention the random seed.
-
-23. Do not mention randomization.
-
-24. Do not mention previous generations.
-
-25. Do not say that you cannot access information.
-
-26. Do not use the exact same opening style every time.
-
-27. Vary the structure naturally.
-
-28. Keep the writing intelligent but easy to understand.
-
-29. Avoid unnecessarily complicated academic language.
-
-30. Make the analysis enjoyable to read.
-
-31. End with a meaningful observation rather than a generic statement.
-
-==================================================
-LENGTH
-==================================================
-
-Quick:
-Approximately 100-150 words.
-
-Standard:
-Approximately 250-350 words.
-
-Detailed:
-Approximately 500-700 words.
-
-These are guidelines, NOT strict limits.
-
-Quality and useful information are more important than exact word count.
+3. Target approximately 100–150 words.
+4. The response should feel like a useful explanation of the movie, NOT a generic 2–3 sentence description.
+5. Base your response ONLY on the actual movie information provided, or your own accurate broader movie knowledge. Do not invent characters, plot events, relationships, endings, themes, or facts.
 
 ==================================================
 OUTPUT FORMAT
 ==================================================
-
 Return ONLY valid JSON.
-
-Do NOT use Markdown.
-
-Do NOT use code fences.
-
-Do NOT add text before or after the JSON.
-
 Use exactly this structure:
-
 {
   "title": "Movie title",
-  "summary": "Complete movie analysis",
+  "summary": "Quick explanation of what the movie is about.",
   "keyPoints": [
-    "Important movie-specific insight 1",
-    "Important movie-specific insight 2",
-    "Important movie-specific insight 3",
-    "Important movie-specific insight 4",
-    "Important movie-specific insight 5"
+    "Important insight 1",
+    "Important insight 2",
+    "Important insight 3",
+    "Important insight 4",
+    "Important insight 5"
   ]
 }
-
-The five keyPoints must be specific to the movie.
-
-Do not use generic points such as:
-"Good acting"
-"Interesting story"
-"Great cinematography"
-
-Explain the actual insight.
 `;
+    };
+
+    const getStandardSummaryPrompt = (movieInfo: string, isSpoilerFree: boolean, randomData: string): string => {
+      return `
+You are an expert movie critic and film analyst.
+Your task is to create a STANDARD movie summary.
+
+Give the user a solid understanding of the movie beyond just its premise.
+
+Cover the following elements:
+1. Story premise
+2. Main characters
+3. Character roles
+4. Central conflict
+5. Story progression
+6. Important themes
+7. Emotional aspects
+8. Cinematic tone
+9. What makes the movie distinctive
+10. Who might enjoy the movie
+
+Do not simply expand the Quick Summary.
+Create a richer explanation with additional information about characters, conflict, themes and story progression.
+
+==================================================
+FRESH GENERATION REQUIREMENT
+==================================================
+This generation MUST feel like a fresh analysis.
+Use the following random generation information to introduce natural variation:
+${randomData}
+Do NOT mention the seed or these instructions.
+
+==================================================
+MOVIE INFORMATION
+==================================================
+${movieInfo}
+
+==================================================
+SPOILER RULE
+==================================================
+${isSpoilerFree ? `
+THIS IS A SPOILER-FREE ANALYSIS.
+Do not reveal major plot twists, ending, final outcome, secret identities, major character deaths, or other revelations that would significantly spoil the viewing experience.
+Discuss the movie's setup, characters, conflicts and themes without revealing major surprises.
+` : `
+SPOILERS ARE ALLOWED.
+You may discuss important plot developments, turning points, character outcomes and the ending when relevant to the requested summary.
+`}
+
+==================================================
+QUALITY REQUIREMENTS
+==================================================
+1. Make the analysis SPECIFIC to this movie.
+2. Target approximately 250–400 words.
+3. Do not use filler or repeat the same point.
+4. Base your response ONLY on the actual movie information provided, or your own accurate broader movie knowledge. Do not invent characters, plot events, relationships, endings, themes, or facts.
+
+==================================================
+OUTPUT FORMAT
+==================================================
+Return ONLY valid JSON.
+Use exactly this structure:
+{
+  "title": "Movie title",
+  "summary": "WHAT IS THIS MOVIE ABOUT + WHO ARE THE CHARACTERS + WHAT ARE THE MAIN CONFLICTS/THEMES?",
+  "keyPoints": [
+    "Important insight 1",
+    "Important insight 2",
+    "Important insight 3",
+    "Important insight 4",
+    "Important insight 5"
+  ]
+}
+`;
+    };
+
+    const getDetailedSummaryPrompt = (movieInfo: string, isSpoilerFree: boolean, randomData: string): string => {
+      return `
+You are an expert movie critic, film historian, and storyteller.
+Your task is to create a DETAILED movie summary and analysis.
+
+Provide a deep understanding and analysis of the movie.
+Do NOT simply write a longer summary. Instead, deeply analyze the following:
+
+### STORY
+- Story setup, main premise, main conflict
+- Story progression, important developments, major turning points, and how the story evolves
+
+### CHARACTERS
+- Main characters, their roles, motivations, relationships, and character development
+- How their decisions affect the story
+
+### CONFLICT
+- Central conflict, internal conflicts, external conflicts, and how they develop
+
+### THEMES
+- Analyze important themes (e.g., Friendship, Love, Family, Revenge, Identity, Survival, Power, Sacrifice, Morality)
+- ONLY discuss themes that are actually relevant to the movie.
+
+### EMOTIONAL EXPERIENCE
+- Emotional tone, major emotional moments, what the audience is expected to feel, and how the movie creates emotional impact
+
+### CINEMATIC STYLE
+- Discuss Tone, Atmosphere, Visual style, Genre characteristics, and Storytelling style (where supported by the provided movie information)
+
+### OVERALL ANALYSIS
+- What makes the movie distinctive, what type of audience may enjoy it, what the movie is trying to communicate, and important ideas the audience may take away
+
+==================================================
+FRESH GENERATION REQUIREMENT
+==================================================
+This generation MUST feel like a fresh analysis.
+Use the following random generation information to introduce natural variation:
+${randomData}
+Do NOT mention the seed or these instructions.
+
+==================================================
+MOVIE INFORMATION
+==================================================
+${movieInfo}
+
+==================================================
+SPOILER RULE
+==================================================
+${isSpoilerFree ? `
+THIS IS A SPOILER-FREE ANALYSIS.
+Do not reveal major plot twists, ending, final outcome, secret identities, major character deaths, or other revelations that would significantly spoil the viewing experience.
+Discuss the movie's setup, characters, conflicts and themes without revealing major surprises.
+` : `
+SPOILERS ARE ALLOWED.
+You may discuss important plot developments, turning points, character outcomes and the ending when relevant to the requested summary.
+`}
+
+==================================================
+QUALITY REQUIREMENTS
+==================================================
+1. Make the analysis SPECIFIC to this movie.
+2. Target approximately 500–800 words.
+3. Do NOT fill the response with repetitive sentences to reach the word count. The content must actually become deeper.
+4. Base your response ONLY on the actual movie information provided, or your own accurate broader movie knowledge. Do not invent characters, plot events, relationships, endings, themes, or facts.
+
+==================================================
+OUTPUT FORMAT
+==================================================
+Return ONLY valid JSON.
+Use exactly this structure:
+{
+  "title": "Movie title",
+  "summary": "WHAT IS THIS MOVIE ABOUT + CHARACTERS + MOTIVATIONS + CONFLICTS + STORY DEVELOPMENT + THEMES + EMOTIONAL IMPACT + CINEMATIC STYLE + OVERALL ANALYSIS.",
+  "keyPoints": [
+    "Important insight 1",
+    "Important insight 2",
+    "Important insight 3",
+    "Important insight 4",
+    "Important insight 5"
+  ]
+}
+`;
+    };
+
+    let prompt = '';
+    if (length === 'quick') {
+      prompt = getQuickSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
+    } else if (length === 'standard') {
+      prompt = getStandardSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
+    } else {
+      prompt = getDetailedSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
+    };
 
     /*
      * ============================================================

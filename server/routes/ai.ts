@@ -22,12 +22,40 @@ aiRouter.post('/summary', optionalAuth, async (req: AuthenticatedRequest, res: R
       return;
     }
 
-    const summary = await aiService.generateMovieSummary({
-      movie,
-      length: ['quick', 'standard', 'detailed'].includes(length) ? length : 'standard',
-      isSpoilerFree: Boolean(isSpoilerFree),
-      forceRegenerate: Boolean(forceRegenerate),
-    });
+    const validLength = ['quick', 'standard', 'detailed'].includes(length) ? length : 'standard';
+    
+    let summary;
+
+    if (!forceRegenerate) {
+      const cached = await db.getSummary(Number(movieId), validLength, Boolean(isSpoilerFree));
+      if (cached) {
+        summary = cached;
+      }
+    }
+
+    if (!summary) {
+      summary = await aiService.generateMovieSummary({
+        movie,
+        length: validLength as 'quick' | 'standard' | 'detailed',
+        isSpoilerFree: Boolean(isSpoilerFree),
+        forceRegenerate: Boolean(forceRegenerate),
+      });
+
+      // Save to cache
+      if (summary && !summary.content.includes("Unable to generate")) {
+        await db.saveSummary({
+          userId: req.user?.id,
+          movieId: summary.movieId,
+          movieTitle: summary.movieTitle,
+          length: summary.length,
+          isSpoilerFree: summary.isSpoilerFree,
+          content: summary.content,
+          keyThemes: summary.keyThemes,
+          recommendedFor: summary.recommendedFor,
+          cinematicTone: summary.cinematicTone
+        });
+      }
+    }
 
     if (req.user) {
       await db.addHistory(
