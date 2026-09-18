@@ -94,6 +94,7 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
 
     setIsLoading(true);
     setError(null);
+    setSummary(null);
 
     try {
       const res = await api.generateSummary(
