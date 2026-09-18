@@ -622,18 +622,16 @@ ${length}
 SPOILER-FREE:
 ${isSpoilerFree}
 
+${length === 'quick' ? `
 ==================================================
 QUICK SUMMARY
 ==================================================
-
-If the requested level is "quick":
 
 Create approximately 100-150 words.
 
 Give the viewer a useful understanding of the movie.
 
 Cover:
-
 - What the movie is about
 - Central premise
 - Main conflict
@@ -643,150 +641,88 @@ Cover:
 - What type of viewer may enjoy it
 
 Do not attempt an extremely deep analysis.
-
 Do not waste words repeating the supplied overview.
 
 The purpose is:
-
 "Give me a quick but genuinely useful understanding of this movie."
-
+` : ''}
+${length === 'standard' ? `
 ==================================================
 STANDARD SUMMARY
 ==================================================
 
-If the requested level is "standard":
-
-Create approximately 250-350 words.
+Create approximately 250-400 words.
 
 Give a proper movie review and analysis.
 
 Cover the most relevant aspects of:
+- Story premise
+- Main characters
+- Main conflict
+- Important themes
+- Overall story progression
+- What makes the movie interesting
+- Who might enjoy it
 
-- Story
-- Central conflict
-- Important characters
-- Character motivations
-- Character development
-- Relationships
-- Themes
-- Emotional impact
-- What works well
-- Weaknesses or limitations when relevant
-- Acting when relevant
-- Direction when relevant
-- Cinematic experience
-- What makes the movie stand out
-- Whether the movie is worth watching and why
-
-Do not simply take the Quick version and make it longer.
-
+Do not simply take a shorter version and make it longer.
 Introduce additional analysis.
 
 The purpose is:
-
 "Help me understand the movie and decide whether it is worth watching."
-
+` : ''}
+${length === 'detailed' ? `
 ==================================================
 DETAILED SUMMARY
 ==================================================
 
-If the requested level is "detailed":
-
-Create approximately 500-700 words.
+Create approximately 500-800 words.
 
 Give the kind of analysis expected from a knowledgeable film critic.
-
 Go significantly beyond the basic plot.
 
 Analyze whichever elements are genuinely relevant to this movie:
 
 STORY:
-
-- Story structure
-- Narrative progression
-- Central conflict
-- Escalation
-- Turning points
-- Pacing
-- Storytelling decisions
+- Story setup and narrative progression
+- Major conflicts and escalation
+- Turning points and storytelling decisions
 
 CHARACTERS:
-
-- Main characters
-- Motivations
-- Internal conflicts
-- Character arcs
-- Relationships
-- Character contrasts
-- Psychological dimensions
+- Main characters and their roles
+- Motivations and internal conflicts
+- Relationships and psychological dimensions
 
 THEMES:
-
-- Major themes
-- Deeper ideas
-- Moral questions
-- Social ideas
-- Philosophical ideas
-- Recurring concepts
-- Subtext
-- Symbolism when genuinely applicable
+- Major themes and deeper ideas
+- Moral questions and symbolism (when applicable)
 
 FILMMAKING:
-
-- Direction
-- Cinematography
-- Camera work
-- Visual language
-- Editing
-- Production design
-- Lighting
-- Music
-- Sound design
-- Acting
-- Performance choices
-- Atmosphere
+- Direction and visual language
+- Cinematic tone, editing, and atmosphere
+- Music, sound design, and performances
 
 CRITICAL ANALYSIS:
-
-- Strengths of the screenplay
-- Weaknesses of the screenplay
-- What works particularly well
-- What does not work
+- Strengths and weaknesses of the screenplay
 - Why specific storytelling choices are effective
-- Why particular moments have emotional or dramatic power
+- Why particular moments have emotional power
 
 DEEPER INTERPRETATION:
-
 - What the movie may be saying
-- Different reasonable interpretations
-- Why the ending or major ideas matter when spoilers are allowed
-- What makes the movie unique
-- Why it remains memorable
-- Cultural or historical significance when relevant
-- Genre significance when relevant
+- What makes the movie unique or memorable
 - Lasting impact when genuinely applicable
 
-The Detailed version MUST contain insights that would normally
-not appear in the Quick or Standard version.
-
-Do NOT simply take the Standard version and add more sentences.
-
 The purpose is:
-
-"Give me the kind of analysis I would get from a knowledgeable
-film critic who has actually thought deeply about this movie."
+"Give me the kind of analysis I would get from a knowledgeable film critic who has actually thought deeply about this movie."
+` : ''}
 
 ==================================================
 SPOILER RULE
 ==================================================
 
-${
-  isSpoilerFree
-    ? `
+${isSpoilerFree ? `
 THIS IS A SPOILER-FREE ANALYSIS.
 
 Do NOT reveal:
-
 - Major plot twists
 - The ending
 - Major deaths
@@ -797,56 +733,36 @@ Do NOT reveal:
 - Late-story developments that significantly change the viewer's experience
 
 You MAY discuss:
-
 - General premise
-- Characters
-- Character motivations
-- Themes
-- General conflicts
-- Acting
-- Direction
-- Cinematography
-- Music
-- Atmosphere
-- Genre
-- General emotional experience
+- Characters and motivations
+- Themes and general conflicts
+- Acting, direction, cinematography
+- Genre and emotional experience
 
-You may discuss themes deeply as long as doing so does not reveal
-important plot developments.
-
-When discussing a character, do not reveal a major fate or transformation
-that would spoil the movie.
-`
-    : `
+You may discuss themes deeply as long as doing so does not reveal important plot developments.
+When discussing a character, do not reveal a major fate or transformation that would spoil the movie.
+` : `
 SPOILERS ARE ALLOWED.
 
 You may discuss:
-
 - Major plot developments
 - Important twists
 - Character outcomes
 - Major deaths
 - Important reveals
-- The climax
-- The ending
-- Resolution
-- Character transformations
+- The climax and ending
+- Resolution and character transformations
 
 Use spoilers when they are useful for explaining:
-
 - The movie's themes
 - Character development
 - Story structure
-- Meaning
-- Emotional impact
-- Strengths
-- Weaknesses
-- Ending
-- Overall quality
+- Meaning and emotional impact
+- Strengths and weaknesses
+- Ending and overall quality
 
 Do not add spoilers merely for the sake of adding them.
-`
-}
+`}
 
 ==================================================
 QUALITY REQUIREMENTS
