@@ -4,10 +4,34 @@ import { SummaryLength } from './summary-request.js';
 import { buildSummaryPrompt } from './summary-prompts.js';
 
 export class GeminiGenerationError extends Error {
-  constructor(message: string, readonly statusCode: number = 502) {
-    super(message);
+  constructor(
+    message: string,
+    readonly statusCode: number = 502,
+    readonly upstreamStatusCode?: number,
+    cause?: unknown
+  ) {
+    super(message, { cause });
     this.name = 'GeminiGenerationError';
   }
+}
+
+function getUpstreamStatusCode(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+
+  const details = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown };
+  };
+  const status =
+    details.status ??
+    details.statusCode ??
+    details.response?.status;
+
+  return typeof status === 'number' && Number.isInteger(status) &&
+    status >= 100 && status <= 599
+    ? status
+    : undefined;
 }
 
 function getGeminiClient(): GoogleGenAI | null {
@@ -119,6 +143,8 @@ export interface SummaryOutput {
 
 type SummaryGenerationResponse = { text?: string };
 
+export const GEMINI_SUMMARY_MODEL = 'gemini-3.6-flash';
+
 export class AIService {
   constructor(
     private readonly requestSummary: (
@@ -126,7 +152,7 @@ export class AIService {
       prompt: string
     ) => Promise<SummaryGenerationResponse> = (ai, prompt) =>
       ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: GEMINI_SUMMARY_MODEL,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -748,13 +774,32 @@ Use exactly this structure:
           new Date().toISOString(),
       };
     } catch (err: any) {
-      console.error(
-        'Gemini generateMovieSummary error:',
-        err
-      );
+      const upstreamStatusCode = getUpstreamStatusCode(err);
+      const upstreamMessage =
+        err instanceof Error ? err.message : String(err);
+      const credentialsRejected =
+        upstreamStatusCode === 401 ||
+        upstreamStatusCode === 403 ||
+        (upstreamStatusCode === 400 &&
+          /API_KEY_INVALID|invalid.{0,20}api key|api key.{0,20}(?:invalid|not valid)/i.test(
+            upstreamMessage
+          ));
+      const statusCode =
+        credentialsRejected || upstreamStatusCode === 429
+          ? 503
+          : 502;
+      const message =
+        credentialsRejected
+          ? 'AI provider rejected its configured credentials or project access.'
+          : upstreamStatusCode === 429
+            ? 'AI provider is temporarily rate limited.'
+            : 'Gemini could not generate the requested summary. Please try again.';
 
       throw new GeminiGenerationError(
-        'Gemini could not generate the requested summary. Please try again.'
+        message,
+        statusCode,
+        upstreamStatusCode,
+        err
       );
     }
   }

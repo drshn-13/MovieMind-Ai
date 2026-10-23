@@ -7,9 +7,17 @@ import {
   SummaryRequestValidationError,
 } from './summary-request.js';
 import { buildSummaryPrompt } from './summary-prompts.js';
-import { AIService, GeminiGenerationError } from './gemini.js';
+import {
+  AIService,
+  GEMINI_SUMMARY_MODEL,
+  GeminiGenerationError,
+} from './gemini.js';
 
 const movieInfo = 'TITLE: Example Movie\nOVERVIEW: A character faces a difficult choice.';
+
+test('summary generation uses the supported Gemini replacement model', () => {
+  assert.equal(GEMINI_SUMMARY_MODEL, 'gemini-3.6-flash');
+});
 
 test('summary prompts select distinct quick, standard, detailed, and storyline instructions', () => {
   const quick = buildSummaryPrompt(movieInfo, 'quick', true);
@@ -199,6 +207,84 @@ test('Gemini API failures are reported as errors instead of successful fallback 
       (error: unknown) =>
         error instanceof GeminiGenerationError &&
         error.message === 'Gemini could not generate the requested summary. Please try again.'
+    );
+  } finally {
+    if (previousKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = previousKey;
+    }
+  }
+});
+
+test('Gemini upstream throttling keeps its status and cause for diagnostics', async () => {
+  const previousKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'unit-test-key';
+  const upstreamError = Object.assign(
+    new Error('Gemini rate limited the request.'),
+    { status: 429 }
+  );
+  const service = new AIService(async () => {
+    throw upstreamError;
+  });
+
+  try {
+    await assert.rejects(
+      service.generateMovieSummary({
+        movie: {
+          id: 42,
+          title: 'Example Movie',
+          overview: 'A character faces a difficult choice.',
+          releaseYear: 2020,
+          genres: [{ name: 'Drama' }],
+        },
+        length: 'standard',
+        isSpoilerFree: true,
+      }),
+      (error: unknown) =>
+        error instanceof GeminiGenerationError &&
+        error.statusCode === 503 &&
+        error.upstreamStatusCode === 429 &&
+        error.cause === upstreamError
+    );
+  } finally {
+    if (previousKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = previousKey;
+    }
+  }
+});
+
+test('Gemini invalid API keys are classified as configuration failures', async () => {
+  const previousKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'unit-test-key';
+  const upstreamError = Object.assign(
+    new Error('API_KEY_INVALID: API key is not valid.'),
+    { status: 400 }
+  );
+  const service = new AIService(async () => {
+    throw upstreamError;
+  });
+
+  try {
+    await assert.rejects(
+      service.generateMovieSummary({
+        movie: {
+          id: 42,
+          title: 'Example Movie',
+          overview: 'A character faces a difficult choice.',
+          releaseYear: 2020,
+          genres: [{ name: 'Drama' }],
+        },
+        length: 'standard',
+        isSpoilerFree: true,
+      }),
+      (error: unknown) =>
+        error instanceof GeminiGenerationError &&
+        error.statusCode === 503 &&
+        error.upstreamStatusCode === 400 &&
+        error.cause === upstreamError
     );
   } finally {
     if (previousKey === undefined) {

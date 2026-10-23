@@ -266,31 +266,26 @@ class DatabaseService {
 
   // AI Summaries Cache
   async getSummary(movieId: number, length: SummaryLength, isSpoilerFree: boolean): Promise<DBAISummary | undefined> {
-    try {
-      const res = await pool.query(
-        'SELECT * FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
-        summaryCacheParameters(movieId, length, isSpoilerFree)
-      );
-      if (res.rows.length === 0) return undefined;
-      
-      const row = res.rows[0];
-      return {
-        id: row.id,
-        userId: row.user_id,
-        movieId: row.movie_id,
-        movieTitle: row.movie_title,
-        length,
-        isSpoilerFree: row.is_spoiler_free,
-        content: row.content,
-        keyThemes: typeof row.key_themes === 'string' ? JSON.parse(row.key_themes) : row.key_themes,
-        recommendedFor: row.recommended_for,
-        cinematicTone: row.cinematic_tone,
-        createdAt: row.created_at.toISOString(),
-      };
-    } catch (err) {
-      console.warn('DB getSummary error:', err);
-      return undefined;
-    }
+    const res = await pool.query(
+      'SELECT * FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
+      summaryCacheParameters(movieId, length, isSpoilerFree)
+    );
+    if (res.rows.length === 0) return undefined;
+
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      userId: row.user_id,
+      movieId: row.movie_id,
+      movieTitle: row.movie_title,
+      length,
+      isSpoilerFree: row.is_spoiler_free,
+      content: row.content,
+      keyThemes: typeof row.key_themes === 'string' ? JSON.parse(row.key_themes) : row.key_themes,
+      recommendedFor: row.recommended_for,
+      cinematicTone: row.cinematic_tone,
+      createdAt: row.created_at.toISOString(),
+    };
   }
 
   async saveSummary(summary: Omit<DBAISummary, 'id' | 'createdAt'>): Promise<DBAISummary> {
@@ -301,31 +296,26 @@ class DatabaseService {
       summary.length,
       summary.isSpoilerFree
     )[1];
-    try {
-      const check = await pool.query(
-        'SELECT id FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
-        [summary.movieId, cacheLength, summary.isSpoilerFree]
-      );
-      
-      if (check.rows.length > 0) {
-        const existingId = check.rows[0].id;
-        await pool.query(
-          `UPDATE summaries SET content = $1, key_themes = $2, recommended_for = $3, cinematic_tone = $4 WHERE id = $5`,
-          [summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, existingId]
-        );
-        return { ...summary, id: existingId, createdAt: new Date().toISOString() };
-      }
+    const check = await pool.query(
+      'SELECT id FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
+      [summary.movieId, cacheLength, summary.isSpoilerFree]
+    );
 
+    if (check.rows.length > 0) {
+      const existingId = check.rows[0].id;
       await pool.query(
-        `INSERT INTO summaries (id, user_id, movie_id, movie_title, length, is_spoiler_free, content, key_themes, recommended_for, cinematic_tone, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [id, summary.userId || null, summary.movieId, summary.movieTitle, cacheLength, summary.isSpoilerFree, summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, createdAt]
+        `UPDATE summaries SET content = $1, key_themes = $2, recommended_for = $3, cinematic_tone = $4 WHERE id = $5`,
+        [summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, existingId]
       );
-      return { ...summary, id, createdAt };
-    } catch (err) {
-      console.warn('DB saveSummary error:', err);
-      return { ...summary, id, createdAt };
+      return { ...summary, id: existingId, createdAt: new Date().toISOString() };
     }
+
+    await pool.query(
+      `INSERT INTO summaries (id, user_id, movie_id, movie_title, length, is_spoiler_free, content, key_themes, recommended_for, cinematic_tone, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [id, summary.userId || null, summary.movieId, summary.movieTitle, cacheLength, summary.isSpoilerFree, summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, createdAt]
+    );
+    return { ...summary, id, createdAt };
   }
 
   // Audio Summaries Cache

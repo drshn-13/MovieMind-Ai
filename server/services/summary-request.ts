@@ -73,13 +73,22 @@ export async function getOrGenerateSummary<T>(options: {
   readCache: () => Promise<T | undefined>;
   generate: () => Promise<T>;
   save: (summary: T) => Promise<unknown>;
+  onCacheError?: (operation: 'read' | 'write', error: unknown) => void;
 }): Promise<T> {
   if (shouldReadSummaryCache(options.request.forceRegenerate)) {
-    const cached = await options.readCache();
-    if (cached !== undefined) return cached;
+    try {
+      const cached = await options.readCache();
+      if (cached !== undefined) return cached;
+    } catch (error) {
+      options.onCacheError?.('read', error);
+    }
   }
 
   const generated = await options.generate();
-  await options.save(generated);
+  try {
+    await options.save(generated);
+  } catch (error) {
+    options.onCacheError?.('write', error);
+  }
   return generated;
 }

@@ -57,17 +57,20 @@
 ## 💻 Quick Start & Running Locally
 
 ### 1. Environment Setup
-Copy the example environment configuration:
-```bash
-cp .env.example .env
-```
-
-Set your API keys (optional; default mock/demo mode will run offline if keys are omitted):
+Create a `.env` file in the project root for local development. For full
+functionality, configure these values (also configure them in Vercel's project
+environment settings for production):
 ```env
 GEMINI_API_KEY="your_gemini_api_key_here"
+DATABASE_URL="your_postgresql_connection_string"
 TMDB_API_KEY="your_tmdb_api_key_here"
 SESSION_SECRET="your_custom_jwt_secret"
 ```
+
+`GEMINI_API_KEY` is required for AI summary generation. `DATABASE_URL` enables
+the PostgreSQL-backed cache, summary persistence, and user data. `TMDB_API_KEY`
+enables live movie details, and `SESSION_SECRET` should be set to a private,
+strong value for JWT authentication.
 
 ### 2. Install Dependencies
 ```bash
