@@ -63,7 +63,7 @@ export interface MovieRecommendation extends Movie {
   };
 }
 
-export type SummaryLength = 'quick' | 'standard' | 'detailed';
+export type SummaryLength = 'quick' | 'standard' | 'detailed' | 'storyline';
 
 export interface AISummary {
   id: string;

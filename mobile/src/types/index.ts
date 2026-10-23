@@ -28,11 +28,13 @@ export interface Movie {
   popularity?: number;
 }
 
+export type SummaryLength = 'quick' | 'standard' | 'detailed' | 'storyline';
+
 export interface AISummary {
   id?: string;
   movieId: number;
   movieTitle: string;
-  length: 'quick' | 'standard' | 'detailed';
+  length: SummaryLength;
   isSpoilerFree: boolean;
   content: string;
   keyThemes?: string[];

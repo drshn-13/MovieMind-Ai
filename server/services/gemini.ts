@@ -1,5 +1,14 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import { db } from '../db/database.js';
+import { SummaryLength } from './summary-request.js';
+import { buildSummaryPrompt } from './summary-prompts.js';
+
+export class GeminiGenerationError extends Error {
+  constructor(message: string, readonly statusCode: number = 502) {
+    super(message);
+    this.name = 'GeminiGenerationError';
+  }
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -88,7 +97,7 @@ export interface GenerateSummaryOptions {
     tagline?: string;
   };
 
-  length: 'quick' | 'standard' | 'detailed';
+  length: SummaryLength;
 
   isSpoilerFree: boolean;
 
@@ -99,7 +108,7 @@ export interface SummaryOutput {
   id: string;
   movieId: number;
   movieTitle: string;
-  length: 'quick' | 'standard' | 'detailed';
+  length: SummaryLength;
   isSpoilerFree: boolean;
   content: string;
   keyThemes: string[];
@@ -108,11 +117,30 @@ export interface SummaryOutput {
   createdAt: string;
 }
 
+type SummaryGenerationResponse = { text?: string };
+
 export class AIService {
+  constructor(
+    private readonly requestSummary: (
+      ai: GoogleGenAI,
+      prompt: string
+    ) => Promise<SummaryGenerationResponse> = (ai, prompt) =>
+      ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 1.0,
+        },
+      })
+  ) {}
+
   hasApiKey(): boolean {
+    const apiKey = process.env.GEMINI_API_KEY;
     return Boolean(
-      process.env.GEMINI_API_KEY &&
-      process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY'
+      apiKey &&
+      apiKey !== 'MY_GEMINI_API_KEY' &&
+      apiKey.trim().length > 0
     );
   }
 
@@ -125,23 +153,7 @@ export class AIService {
       isSpoilerFree,
     } = options;
 
-    /*
-     * ============================================================
-     * FRESH SUMMARY GENERATION
-     * ============================================================
-     *
-     * Movie summaries are intentionally NOT cached.
-     *
-     * Every request generates a new Gemini response.
-     *
-     * Math.random() is used to create:
-     *
-     * 1. A unique generation seed
-     * 2. A random analytical perspective
-     * 3. A random structural approach
-     *
-     * This makes repeated generations of the same movie different.
-     */
+    // Cache reads and writes are handled by the AI route; this call always reaches Gemini.
 
     const randomSeed = Math.floor(
       Math.random() * 1000000000
@@ -324,134 +336,10 @@ a more insightful analysis.
     const ai = getGeminiClient();
 
     if (!ai) {
-      const fallbackThemes =
-        movie.keywords &&
-        movie.keywords.length > 0
-          ? movie.keywords.slice(0, 5)
-          : [
-              'Identity',
-              'Courage',
-              'Moral Conflict',
-              'Discovery',
-              'Human Relationships',
-            ];
-
-      let fallbackText = '';
-
-      if (length === 'quick') {
-        fallbackText = `
-${movie.title} (${movie.releaseYear}) is a ${
-          genreList || 'cinematic'
-        } film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-${movie.overview}
-
-The story centers around ${
-          castList || 'its principal characters'
-        } and develops its central conflict through their goals, decisions, and circumstances.
-
-The movie explores ideas connected to ${
-          fallbackThemes.join(', ')
-        } and offers a viewing experience shaped by its story, characters, and overall cinematic style.
-
-${
-  isSpoilerFree
-    ? 'This explanation avoids major twists, reveals, and the ending.'
-    : 'This version is intended to discuss the complete narrative.'
-}
-        `.trim();
-      } else if (length === 'detailed') {
-        fallbackText = `
-DETAILED MOVIE ANALYSIS
-
-${movie.title} (${movie.releaseYear}) is a ${
-          genreList || 'cinematic'
-        } film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-PREMISE AND STORY
-
-${movie.overview}
-
-The central story develops through ${
-          castList || 'the principal characters'
-        }, whose circumstances establish the movie's main dramatic and emotional conflicts.
-
-CHARACTERS
-
-The characters provide the foundation for the movie's emotional experience. Their goals, choices, relationships, and reactions to the central conflict shape how the story develops.
-
-THEMES
-
-The movie connects with themes such as ${
-          fallbackThemes.join(', ')
-        }. These ideas help define the meaning and emotional direction of the story.
-
-CINEMATIC EXPERIENCE
-
-The combination of its ${genreList || 'genre'} elements, characters, story, atmosphere, and filmmaking creates the movie's distinctive identity.
-
-${
-  isSpoilerFree
-    ? 'This analysis intentionally avoids major twists, deaths, reveals, and the ending.'
-    : 'This version allows discussion of major narrative developments and the ending.'
-}
-        `.trim();
-      } else {
-        fallbackText = `
-${movie.title} (${movie.releaseYear}) is a ${
-          genreList || 'cinematic'
-        } film directed by ${
-          movie.director || 'its filmmakers'
-        }.
-
-${movie.overview}
-
-The main characters include ${
-          castList || 'the principal characters'
-        }. Their circumstances establish the movie's central conflict and emotional direction.
-
-The film explores themes including ${
-          fallbackThemes.join(', ')
-        } while combining its story, characters, atmosphere, and cinematic style into its overall experience.
-
-${
-  isSpoilerFree
-    ? 'This explanation keeps major twists and the ending hidden.'
-    : 'This version can discuss major developments and the ending.'
-}
-        `.trim();
-      }
-
-      return {
-        id: `sum_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(2, 9)}`,
-
-        movieId: movie.id,
-
-        movieTitle: movie.title,
-
-        length,
-
-        isSpoilerFree,
-
-        content: fallbackText,
-
-        keyThemes: fallbackThemes,
-
-        recommendedFor:
-          `Fans of ${genreList || 'cinematic'} films looking for a deeper understanding of the story and themes.`,
-
-        cinematicTone:
-          'Immersive & Thought-Provoking',
-
-        createdAt:
-          new Date().toISOString(),
-      };
+      throw new GeminiGenerationError(
+        'Gemini API key is not configured.',
+        503
+      );
     }
 
     /*
@@ -729,14 +617,7 @@ Use exactly this structure:
 `;
     };
 
-    let prompt = '';
-    if (length === 'quick') {
-      prompt = getQuickSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
-    } else if (length === 'standard') {
-      prompt = getStandardSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
-    } else {
-      prompt = getDetailedSummaryPrompt(movieInfoStr, isSpoilerFree, randomDataStr);
-    };
+    const prompt = buildSummaryPrompt(movieInfoStr, length, isSpoilerFree);
 
     /*
      * ============================================================
@@ -745,26 +626,13 @@ Use exactly this structure:
      */
 
     try {
-      const response =
-        await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-
-          contents: prompt,
-
-          config: {
-            responseMimeType:
-              'application/json',
-
-            /*
-             * Higher temperature encourages different wording,
-             * perspectives, and observations between generations.
-             */
-            temperature: 1.0,
-          },
-        });
+      const response = await this.requestSummary(ai, prompt);
 
       const responseText =
         response.text || '';
+      if (!responseText.trim()) {
+        throw new Error('Gemini returned an empty response.');
+      }
 
       let parsed: any;
 
@@ -818,16 +686,24 @@ Use exactly this structure:
        */
 
       const generatedSummary =
-        parsed.summary ||
-        parsed.content ||
-        responseText ||
-        'Unable to generate movie summary.';
+        typeof parsed.summary === 'string'
+          ? parsed.summary.trim()
+          : typeof parsed.content === 'string'
+            ? parsed.content.trim()
+            : '';
+      if (!generatedSummary) {
+        throw new Error('Gemini response did not contain a summary.');
+      }
 
       const generatedKeyPoints =
         Array.isArray(parsed.keyPoints)
-          ? parsed.keyPoints
+          ? parsed.keyPoints.filter((point: unknown): point is string =>
+              typeof point === 'string'
+            )
           : Array.isArray(parsed.keyThemes)
-            ? parsed.keyThemes
+            ? parsed.keyThemes.filter((theme: unknown): theme is string =>
+                typeof theme === 'string'
+              )
             : [
                 'Movie-specific story analysis',
                 'Character development and motivations',
@@ -835,16 +711,6 @@ Use exactly this structure:
                 'Filmmaking and cinematic experience',
                 'Overall critical perspective',
               ];
-
-      /*
-       * IMPORTANT:
-       *
-       * DO NOT call db.saveSummary().
-       *
-       * Movie summaries are intentionally not cached.
-       *
-       * Therefore every request can generate a fresh summary.
-       */
 
       return {
         id: `sum_${Date.now()}_${Math.random()
@@ -869,11 +735,13 @@ Use exactly this structure:
             .slice(0, 5),
 
         recommendedFor:
-          parsed.recommendedFor ||
+          (typeof parsed.recommendedFor === 'string' &&
+          parsed.recommendedFor.trim()) ||
           `Viewers interested in ${genreList || 'cinematic'} storytelling and deeper movie analysis.`,
 
         cinematicTone:
-          parsed.cinematicTone ||
+          (typeof parsed.cinematicTone === 'string' &&
+          parsed.cinematicTone.trim()) ||
           'Cinematic & Thought-Provoking',
 
         createdAt:
@@ -885,84 +753,9 @@ Use exactly this structure:
         err
       );
 
-      /*
-       * ==========================================================
-       * GEMINI ERROR FALLBACK
-       * ==========================================================
-       *
-       * Do NOT save this fallback to the database.
-       */
-
-      const fallbackThemes =
-        movie.keywords &&
-        movie.keywords.length > 0
-          ? movie.keywords.slice(0, 5)
-          : [
-              'Storytelling',
-              'Character Development',
-              'Conflict',
-              'Themes',
-              'Cinema',
-            ];
-
-      const fallbackText = `
-${movie.title} (${movie.releaseYear}) is a ${
-        genreList || 'cinematic'
-      } film directed by ${
-        movie.director || 'its filmmakers'
-      }.
-
-${movie.overview}
-
-The movie's central story is shaped by ${
-        castList || 'its main characters'
-      }, whose goals, decisions, relationships, and conflicts establish the emotional direction of the narrative.
-
-The film explores ideas connected to ${
-        keywordList || fallbackThemes.join(', ')
-      }.
-
-${
-  isSpoilerFree
-    ? 'This explanation intentionally avoids major twists, important reveals, and the ending.'
-    : 'This version is intended to discuss the broader narrative and its major developments.'
-}
-
-The overall experience is defined by the combination of its ${
-        genreList || 'genre'
-      } elements, storytelling, characters, atmosphere, and filmmaking choices.
-      `.trim();
-
-      return {
-        id: `sum_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(2, 9)}`,
-
-        movieId:
-          movie.id,
-
-        movieTitle:
-          movie.title,
-
-        length,
-
-        isSpoilerFree,
-
-        content:
-          fallbackText,
-
-        keyThemes:
-          fallbackThemes,
-
-        recommendedFor:
-          `Viewers interested in ${genreList || 'cinematic'} storytelling.`,
-
-        cinematicTone:
-          'Engaging & Dramatic',
-
-        createdAt:
-          new Date().toISOString(),
-      };
+      throw new GeminiGenerationError(
+        'Gemini could not generate the requested summary. Please try again.'
+      );
     }
   }
 

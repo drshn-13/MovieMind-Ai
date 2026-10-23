@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,8 @@ import {
   RefreshCw,
 } from 'lucide-react-native';
 import { aiApi } from '../api/ai';
-import { AISummary, Movie } from '../types';
+import { AISummary, Movie, SummaryLength } from '../types';
+import { isCurrentSummaryRequest } from '../utils/summaryRequest';
 
 export const AISummaryScreen: React.FC<{ route: any; navigation: any }> = ({
   route,
@@ -28,13 +29,18 @@ export const AISummaryScreen: React.FC<{ route: any; navigation: any }> = ({
 }) => {
   const { movie } = route.params as { movie: Movie };
   const [summary, setSummary] = useState<AISummary | null>(null);
-  const [length, setLength] = useState<'quick' | 'standard' | 'detailed'>('standard');
+  const [length, setLength] = useState<SummaryLength>('standard');
   const [isSpoilerFree, setIsSpoilerFree] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
+  const activeRequestIdRef = useRef(0);
+  const selectedOptionsRef = useRef({ length, isSpoilerFree });
+  selectedOptionsRef.current = { length, isSpoilerFree };
 
   const fetchSummary = async (force = false) => {
     if (!movie) return;
+    const requestId = ++activeRequestIdRef.current;
     setLoading(true);
+    setSummary(null);
     try {
       const data = await aiApi.generateSummary({
         movieId: movie.id,
@@ -42,16 +48,34 @@ export const AISummaryScreen: React.FC<{ route: any; navigation: any }> = ({
         isSpoilerFree,
         forceRegenerate: force,
       });
-      setSummary(data.summary);
+      const selected = selectedOptionsRef.current;
+      if (
+        isCurrentSummaryRequest(
+          requestId,
+          activeRequestIdRef.current,
+          selected.length,
+          selected.isSpoilerFree,
+          data.summary
+        )
+      ) {
+        setSummary(data.summary);
+      }
     } catch (e: any) {
-      Alert.alert('AI Error', e.message || 'Could not generate AI summary. Please retry.');
+      if (requestId === activeRequestIdRef.current) {
+        Alert.alert('AI Error', e.message || 'Could not generate AI summary. Please retry.');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchSummary();
+    return () => {
+      activeRequestIdRef.current += 1;
+    };
   }, [length, isSpoilerFree]);
 
   return (
@@ -78,7 +102,7 @@ export const AISummaryScreen: React.FC<{ route: any; navigation: any }> = ({
           {/* Length Selector */}
           <Text style={styles.controlLabel}>SUMMARY DEPTH</Text>
           <View style={styles.lengthPillsRow}>
-            {(['quick', 'standard', 'detailed'] as const).map((mode) => (
+            {(['quick', 'standard', 'detailed', 'storyline'] as const).map((mode) => (
               <TouchableOpacity
                 key={mode}
                 style={[styles.lengthPill, length === mode && styles.activeLengthPill]}
@@ -129,7 +153,9 @@ export const AISummaryScreen: React.FC<{ route: any; navigation: any }> = ({
               Synthesizing cinematic themes, character arcs, and spoiler-safe narrative structure...
             </Text>
           </View>
-        ) : summary ? (
+        ) : summary &&
+          summary.length === length &&
+          summary.isSpoilerFree === isSpoilerFree ? (
           <View style={styles.summaryContainer}>
             {/* Tone & Recommendations Badges */}
             {summary.cinematicTone && (

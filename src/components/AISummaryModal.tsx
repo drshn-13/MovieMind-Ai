@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Movie, AISummary, SummaryLength } from '../types.js';
 import { api } from '../services/api.js';
+import { isCurrentSummaryRequest } from '../services/summary-request.js';
 import { useAudioPlayer } from '../context/AudioPlayerContext.js';
 
 interface AISummaryModalProps {
@@ -41,6 +42,9 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const audioAbortControllerRef = useRef<AbortController | null>(null);
+  const activeSummaryRequestRef = useRef(0);
+  const selectedSummaryOptionsRef = useRef({ length, isSpoilerFree });
+  selectedSummaryOptionsRef.current = { length, isSpoilerFree };
 
   // Generate on open or movie change
   useEffect(() => {
@@ -58,6 +62,8 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
   }, [isOpen, movie?.id]);
 
   const handleCancelRequests = () => {
+    activeSummaryRequestRef.current += 1;
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -91,6 +97,7 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    const requestId = ++activeSummaryRequestRef.current;
 
     setIsLoading(true);
     setError(null);
@@ -105,8 +112,20 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
         controller.signal
       );
 
-      setSummary(res);
+      const selected = selectedSummaryOptionsRef.current;
+      if (
+        isCurrentSummaryRequest(
+          requestId,
+          activeSummaryRequestRef.current,
+          selected.length,
+          selected.isSpoilerFree,
+          res
+        )
+      ) {
+        setSummary(res);
+      }
     } catch (err: any) {
+      if (requestId !== activeSummaryRequestRef.current) return;
       if (err.name === 'AbortError') {
         console.log('Summary generation aborted');
         return;
@@ -130,7 +149,7 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
     if (!summary || !movie) return;
 
     navigator.clipboard.writeText(
-      `${movie.title} (${movie.releaseYear}) - AI Summary [${length.toUpperCase()}]\n\n${summary.content}`
+      `${movie.title} (${movie.releaseYear}) - AI Summary [${summary.length.toUpperCase()}]\n\n${summary.content}`
     );
 
     setCopied(true);
@@ -283,9 +302,10 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
           <div className="flex items-center space-x-1.5 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
 
             {[
-              { id: 'quick', label: 'Short (Main Events)' },
+              { id: 'quick', label: 'Quick' },
               { id: 'standard', label: 'Standard' },
-              { id: 'detailed', label: 'Detailed (Entire Story)' },
+              { id: 'detailed', label: 'Detailed' },
+              { id: 'storyline', label: 'Storyline' },
             ].map((item) => (
 
               <button
@@ -379,6 +399,8 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
                     ? 'Crafting Detailed Movie Review with Gemini AI...'
                     : length === 'quick'
                     ? 'Creating Quick Movie Summary with Gemini AI...'
+                    : length === 'storyline'
+                    ? 'Building a Chronological Storyline with Gemini AI...'
                     : 'Analyzing Movie with Gemini AI...'
                   }
 
@@ -443,7 +465,9 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
 
             </div>
 
-          ) : summary ? (
+          ) : summary &&
+            summary.length === length &&
+            summary.isSpoilerFree === isSpoilerFree ? (
 
             <div className="space-y-4 animate-in fade-in">
 
@@ -473,12 +497,13 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
 
                 <span className="text-[11px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
 
-                  {length === 'quick'
-                    ? 'Short Summary'
-                    : length === 'detailed'
-                    ? 'Detailed Full Story'
-                    : 'Standard Summary'
-                  }
+                  {summary.length === 'quick'
+                    ? 'Quick Summary'
+                    : summary.length === 'detailed'
+                    ? 'Detailed Analysis'
+                    : summary.length === 'storyline'
+                    ? 'Chronological Storyline'
+                    : 'Standard Summary'}
 
                 </span>
 
@@ -575,9 +600,10 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
                     Play This {length === 'detailed'
                       ? 'Detailed'
                       : length === 'quick'
-                      ? 'Short'
-                      : 'Standard'
-                    } Audio
+                      ? 'Quick'
+                      : length === 'storyline'
+                      ? 'Storyline'
+                      : 'Standard'} Audio
                   </button>
 
                 </div>
@@ -757,7 +783,9 @@ export const AISummaryModal: React.FC<AISummaryModalProps> = ({ movie, isOpen, o
                     length === 'detailed'
                       ? 'Detailed'
                       : length === 'quick'
-                      ? 'Short'
+                      ? 'Quick'
+                      : length === 'storyline'
+                      ? 'Storyline'
                       : 'Standard'
                   } Audio
                 </span>

@@ -1,61 +1,60 @@
 import { Router, Response } from 'express';
-import { aiService } from '../services/gemini.js';
+import { aiService, GeminiGenerationError } from '../services/gemini.js';
 import { tmdb } from '../services/tmdb.js';
 import { db } from '../db/database.js';
 import { optionalAuth, AuthenticatedRequest } from '../middleware/auth.js';
+import {
+  parseSummaryRequest,
+  getOrGenerateSummary,
+  SummaryRequestValidationError,
+} from '../services/summary-request.js';
 
 export const aiRouter = Router();
 
 // Generate AI Movie Summary
 aiRouter.post('/summary', optionalAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { movieId, length = 'standard', isSpoilerFree = true, forceRegenerate = false } = req.body;
-
-    if (!movieId) {
-      res.status(400).json({ error: 'movieId is required.' });
-      return;
+    let summaryRequest;
+    try {
+      summaryRequest = parseSummaryRequest(req.body);
+    } catch (err) {
+      if (err instanceof SummaryRequestValidationError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
     }
 
-    const movie = await tmdb.getMovieDetails(Number(movieId));
+    const { movieId, length, isSpoilerFree, forceRegenerate } = summaryRequest;
+    const movie = await tmdb.getMovieDetails(movieId);
     if (!movie) {
       res.status(404).json({ error: 'Movie could not be found to generate summary.' });
       return;
     }
 
-    const validLength = ['quick', 'standard', 'detailed'].includes(length) ? length : 'standard';
-    
-    let summary;
-
-    if (!forceRegenerate) {
-      const cached = await db.getSummary(Number(movieId), validLength, Boolean(isSpoilerFree));
-      if (cached) {
-        summary = cached;
-      }
-    }
-
-    if (!summary) {
-      summary = await aiService.generateMovieSummary({
-        movie,
-        length: validLength as 'quick' | 'standard' | 'detailed',
-        isSpoilerFree: Boolean(isSpoilerFree),
-        forceRegenerate: Boolean(forceRegenerate),
-      });
-
-      // Save to cache
-      if (summary && !summary.content.includes("Unable to generate")) {
-        await db.saveSummary({
+    const summary = await getOrGenerateSummary({
+      request: summaryRequest,
+      readCache: () => db.getSummary(movieId, length, isSpoilerFree),
+      generate: () =>
+        aiService.generateMovieSummary({
+          movie,
+          length,
+          isSpoilerFree,
+          forceRegenerate,
+        }),
+      save: (generated) =>
+        db.saveSummary({
           userId: req.user?.id,
-          movieId: summary.movieId,
-          movieTitle: summary.movieTitle,
-          length: summary.length,
-          isSpoilerFree: summary.isSpoilerFree,
-          content: summary.content,
-          keyThemes: summary.keyThemes,
-          recommendedFor: summary.recommendedFor,
-          cinematicTone: summary.cinematicTone
-        });
-      }
-    }
+          movieId: generated.movieId,
+          movieTitle: generated.movieTitle,
+          length: generated.length,
+          isSpoilerFree: generated.isSpoilerFree,
+          content: generated.content,
+          keyThemes: generated.keyThemes,
+          recommendedFor: generated.recommendedFor,
+          cinematicTone: generated.cinematicTone,
+        }),
+    });
 
     if (req.user) {
       await db.addHistory(
@@ -71,6 +70,10 @@ aiRouter.post('/summary', optionalAuth, async (req: AuthenticatedRequest, res: R
     res.json({ summary });
   } catch (err: any) {
     console.error('Error generating AI summary:', err);
+    if (err instanceof GeminiGenerationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
     res.status(500).json({ error: 'Failed to generate AI movie summary. Please try again.' });
   }
 });

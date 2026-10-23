@@ -1,10 +1,10 @@
 import { request } from './client';
-import { AISummary, AudioSummary } from '../types';
+import { AISummary, AudioSummary, SummaryLength } from '../types';
 
 export const aiApi = {
   async generateSummary(data: {
     movieId: number;
-    length: 'quick' | 'standard' | 'detailed';
+    length: SummaryLength;
     isSpoilerFree: boolean;
     forceRegenerate?: boolean;
   }): Promise<{ summary: AISummary }> {

@@ -1,6 +1,7 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
+import { SummaryLength, summaryCacheParameters } from '../services/summary-request.js';
 
 dotenv.config();
 
@@ -47,7 +48,7 @@ export interface DBAISummary {
   userId?: string;
   movieId: number;
   movieTitle: string;
-  length: 'quick' | 'standard' | 'detailed';
+  length: SummaryLength;
   isSpoilerFree: boolean;
   content: string;
   keyThemes: string[];
@@ -264,11 +265,11 @@ class DatabaseService {
   }
 
   // AI Summaries Cache
-  async getSummary(movieId: number, length: string, isSpoilerFree: boolean): Promise<DBAISummary | undefined> {
+  async getSummary(movieId: number, length: SummaryLength, isSpoilerFree: boolean): Promise<DBAISummary | undefined> {
     try {
       const res = await pool.query(
         'SELECT * FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
-        [movieId, length, isSpoilerFree]
+        summaryCacheParameters(movieId, length, isSpoilerFree)
       );
       if (res.rows.length === 0) return undefined;
       
@@ -278,7 +279,7 @@ class DatabaseService {
         userId: row.user_id,
         movieId: row.movie_id,
         movieTitle: row.movie_title,
-        length: row.length,
+        length,
         isSpoilerFree: row.is_spoiler_free,
         content: row.content,
         keyThemes: typeof row.key_themes === 'string' ? JSON.parse(row.key_themes) : row.key_themes,
@@ -295,10 +296,15 @@ class DatabaseService {
   async saveSummary(summary: Omit<DBAISummary, 'id' | 'createdAt'>): Promise<DBAISummary> {
     const id = `sum_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const createdAt = new Date().toISOString();
+    const cacheLength = summaryCacheParameters(
+      summary.movieId,
+      summary.length,
+      summary.isSpoilerFree
+    )[1];
     try {
       const check = await pool.query(
         'SELECT id FROM summaries WHERE movie_id = $1 AND length = $2 AND is_spoiler_free = $3',
-        [summary.movieId, summary.length, summary.isSpoilerFree]
+        [summary.movieId, cacheLength, summary.isSpoilerFree]
       );
       
       if (check.rows.length > 0) {
@@ -313,7 +319,7 @@ class DatabaseService {
       await pool.query(
         `INSERT INTO summaries (id, user_id, movie_id, movie_title, length, is_spoiler_free, content, key_themes, recommended_for, cinematic_tone, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [id, summary.userId || null, summary.movieId, summary.movieTitle, summary.length, summary.isSpoilerFree, summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, createdAt]
+        [id, summary.userId || null, summary.movieId, summary.movieTitle, cacheLength, summary.isSpoilerFree, summary.content, JSON.stringify(summary.keyThemes), summary.recommendedFor, summary.cinematicTone, createdAt]
       );
       return { ...summary, id, createdAt };
     } catch (err) {
